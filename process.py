@@ -76,14 +76,14 @@ def _tomar(posse: Path) -> bool:
         fh.write(str(os.getpid()))
     return True
 
-def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int, int]:
+def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int, int, int]:
     destino = FICHAS / (origem.stem + '.json')
     parcial = FICHAS / (origem.stem + '.parcial.json')
     if destino.exists():
-        return (0, 0)
+        return (0, 0, 0)
     posse = FICHAS / (origem.stem + '.posse')
     if not _tomar(posse):
-        return (0, 0)
+        return (0, 0, 0)
     texto = origem.read_text(encoding='utf-8', errors='replace')
     partes = da.lotes(texto)
     feitos: set[int] = set()
@@ -135,11 +135,11 @@ def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int
         da._gravar_atomico(FALHAS / (origem.stem + '.json'), {'esquema': ESQUEMA, 'fonte': origem.name, 'lotes': len(partes), 'lotes_falhos': falhos, 'corrida_morta': falhos == len(partes) and len(partes) > 0, 'modelos': sorted(modelos), 'fichas': [], 'quando': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())})
         parcial.unlink(missing_ok=True)
         posse.unlink(missing_ok=True)
-        return (0, falhos or len(partes))
+        return (0, falhos, 1)
     da._gravar_atomico(destino, {'esquema': ESQUEMA, 'fonte': origem.name, 'lotes': len(partes), 'lotes_falhos': falhos, 'corrida_morta': falhos == len(partes) and len(partes) > 0, 'modelos': sorted(modelos), 'fichas': fichas})
     parcial.unlink(missing_ok=True)
     posse.unlink(missing_ok=True)
-    return (len(fichas), falhos)
+    return (len(fichas), falhos, 0)
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
@@ -188,32 +188,33 @@ def main() -> int:
     print('videos no corpus:', len(fila), '| SEM ficha:', len(pendentes))
     fila = pendentes[:args.limite] if args.limite else pendentes
     print('videos na fila:', len(fila), '\n')
-    total_f = total_x = feitos = 0
+    total_f = total_x = total_v = feitos = 0
     trava_saida = threading.Lock()
 
     def uma(par):
         n, origem = par
         alvo = FICHAS / (origem.stem + '.json')
         if alvo.exists():
-            return (0, 0)
-        f, x = destilar(origem, anel, args.fluxos, args.gemini_em_dez)
-        if f or x:
+            return (0, 0, 0)
+        f, x, v = destilar(origem, anel, args.fluxos, args.gemini_em_dez)
+        if f or x or v:
             with trava_saida:
                 print('[%3d/%3d] %-58s %4d fichas | %d falhos' % (n, len(fila), '', f, x), flush=True)
-        return (f, x)
+        return (f, x, v)
     pares = list(enumerate(fila, 1))
     if args.videos_juntos > 1:
         with ThreadPoolExecutor(max_workers=args.videos_juntos) as pool:
             resultados = list(pool.map(uma, pares))
     else:
         resultados = [uma(par) for par in pares]
-    for f, x in resultados:
-        if f or x:
+    for f, x, v in resultados:
+        if f or x or v:
             feitos += 1
             total_f += f
             total_x += x
+            total_v += v
     print('\nvideos destilados nesta corrida:', feitos)
-    print('fichas:', total_f, '| lotes falhos:', total_x)
+    print('fichas:', total_f, '| lotes falhos:', total_x, '| videos sem saida:', total_v)
     print('saida:', FICHAS)
     return 0
 if __name__ == '__main__':
