@@ -1,0 +1,122 @@
+name: run
+
+# O dado NAO vive aqui. Ele e' clonado de um repositorio privado no inicio da
+# corrida, processado no runner, e devolvido ao mesmo lugar no fim. Nada do
+# conteudo e' commitado neste repositorio.
+on:
+  workflow_dispatch:
+    inputs:
+      limite:
+        description: "maximo de itens nesta corrida (0 = todos)"
+        type: string
+        default: "0"
+      juntos:
+        description: "quantos itens em paralelo"
+        type: string
+        default: "4"
+
+concurrency:
+  group: run
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: chave de acesso ao armazenamento
+        env:
+          STORE_KEY: ${{ secrets.STORE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$STORE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: buscar os dados
+        env:
+          STORE_REPO: ${{ secrets.STORE_REPO }}
+        run: |
+          git clone --depth 1 "$STORE_REPO" dados
+          echo "arquivos: $(ls dados/corpus | wc -l)"
+
+      - name: processar
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENROUTER_API_KEY_2: ${{ secrets.OPENROUTER_API_KEY_2 }}
+          OPENROUTER_API_KEY_3: ${{ secrets.OPENROUTER_API_KEY_3 }}
+          OPENROUTER_API_KEY_4: ${{ secrets.OPENROUTER_API_KEY_4 }}
+          OPENROUTER_API_KEY_5: ${{ secrets.OPENROUTER_API_KEY_5 }}
+          OPENROUTER_API_KEY_6: ${{ secrets.OPENROUTER_API_KEY_6 }}
+          OPENROUTER_API_KEY_7: ${{ secrets.OPENROUTER_API_KEY_7 }}
+          OPENROUTER_API_KEY_8: ${{ secrets.OPENROUTER_API_KEY_8 }}
+          OPENROUTER_API_KEY_9: ${{ secrets.OPENROUTER_API_KEY_9 }}
+          OPENROUTER_API_KEY_10: ${{ secrets.OPENROUTER_API_KEY_10 }}
+          OPENROUTER_API_KEY_11: ${{ secrets.OPENROUTER_API_KEY_11 }}
+          OPENROUTER_API_KEY_12: ${{ secrets.OPENROUTER_API_KEY_12 }}
+          OPENROUTER_API_KEY_13: ${{ secrets.OPENROUTER_API_KEY_13 }}
+          OPENROUTER_API_KEY_14: ${{ secrets.OPENROUTER_API_KEY_14 }}
+          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
+          NVIDIA_API_KEY_2: ${{ secrets.NVIDIA_API_KEY_2 }}
+          NVIDIA_API_KEY_3: ${{ secrets.NVIDIA_API_KEY_3 }}
+          NVIDIA_API_KEY_4: ${{ secrets.NVIDIA_API_KEY_4 }}
+          NVIDIA_API_KEY_5: ${{ secrets.NVIDIA_API_KEY_5 }}
+          WORKERS: "8"
+        # O alvo e' escolhido AQUI, a partir do que o armazenamento tem, e
+        # nunca vem como entrada: entrada de workflow fica registrada na
+        # corrida, e num repositorio publico isso publicaria o alvo.
+        # Ele tambem nao e' ecoado -- so' o tamanho do lote.
+        run: |
+          set +x
+          ALVO=$(python - <<'PY'
+          import collections
+          from pathlib import Path
+          c = collections.Counter(p.name.split(' - ', 1)[0]
+                                  for p in Path('dados/corpus').glob('*.txt')
+                                  if p.name != 'full_text.txt')
+          f = collections.Counter(p.name.split(' - ', 1)[0]
+                                  for p in Path('dados/fichas').glob('*.json')
+                                  if not p.name.endswith('.parcial.json'))
+          falta = sorted((n, k) for k, n in c.items() if f.get(k, 0) < n)
+          print(falta[0][1] if falta else '')
+          PY
+          )
+          if [ -z "$ALVO" ]; then echo "nada pendente"; exit 0; fi
+          echo "lote pendente: $(ls dados/corpus | grep -c "^$ALVO - ") itens"
+          python process.py \
+            --corpus dados/corpus --fichas dados/fichas \
+            --prefixo "$ALVO" \
+            --limite ${{ inputs.limite || 0 }} \
+            --videos-juntos ${{ inputs.juntos || 4 }}
+          echo "EXITCODE REAL: $?"
+
+      # Puxar antes de empurrar: o armazenamento pode ter andado durante a
+      # corrida, e um push cego devolve `fetch first` e descarta o trabalho.
+      # So' os caminhos existentes entram no `add`: pathspec que nao casa faz o
+      # `git add` NAO estagiar nada, inclusive o que era valido.
+      - name: devolver o resultado
+        run: |
+          cd dados
+          git config user.name "runner"
+          git config user.email "runner@users.noreply.github.com"
+          alvos=""
+          for p in fichas corpus; do [ -e "$p" ] && alvos="$alvos $p"; done
+          [ -z "$alvos" ] && { echo "nada a estagiar"; exit 1; }
+          git add $alvos
+          if git diff --cached --quiet; then
+            echo "nada novo."
+          else
+            git commit -q -m "runner: resultados novos ($(date -u +%Y-%m-%d))"
+            git pull --rebase || { echo "rebase falhou -- NAO empurro"; exit 1; }
+            git push
+            echo "PUSH EXITCODE REAL: $?"
+          fi

@@ -1,0 +1,200 @@
+"""Motor de destilacao."""
+from __future__ import annotations
+import argparse
+import json
+import os
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+AQUI = Path(__file__).resolve().parent
+CORPUS = AQUI / 'corpus'
+FICHAS = AQUI / 'fichas'
+sys.path.insert(0, str(AQUI))
+import engine as da
+ESQUEMA = 'FICHA_DE_SAIDA_DE_IA_20260914'
+INSTRUCAO = ''
+
+def obras() -> list[Path]:
+    if not CORPUS.is_dir():
+        return []
+    return sorted((p for p in CORPUS.glob('*.txt') if p.name != 'full_text.txt'))
+
+def _processo_vivo(pid: int):
+    if pid <= 0:
+        return False
+    if os.name == 'nt':
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 4096
+        STILL_ACTIVE = 259
+        k = ctypes.windll.kernel32
+        h = k.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            erro = k.GetLastError()
+            return False if erro == 87 else True if erro == 5 else None
+        try:
+            codigo = ctypes.c_ulong()
+            if not k.GetExitCodeProcess(h, ctypes.byref(codigo)):
+                return None
+            return codigo.value == STILL_ACTIVE
+        finally:
+            k.CloseHandle(h)
+    try:
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return None
+
+def _posse_orfa(posse: Path) -> bool:
+    try:
+        cru = posse.read_text(encoding='utf-8').strip()
+    except OSError:
+        return False
+    if not cru.isdigit():
+        return False
+    return _processo_vivo(int(cru)) is False
+
+def _tomar(posse: Path) -> bool:
+    try:
+        fd = os.open(posse, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        if not _posse_orfa(posse):
+            return False
+        print('   posse ORFA retomada (user morto): %s' % posse.name)
+        try:
+            posse.unlink()
+            fd = os.open(posse, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except (OSError, FileExistsError):
+            return False
+    with os.fdopen(fd, 'w') as fh:
+        fh.write(str(os.getpid()))
+    return True
+
+def destilar(origem: Path, anel, fluxos: int) -> tuple[int, int]:
+    destino = FICHAS / (origem.stem + '.json')
+    parcial = FICHAS / (origem.stem + '.parcial.json')
+    if destino.exists():
+        return (0, 0)
+    posse = FICHAS / (origem.stem + '.posse')
+    if not _tomar(posse):
+        return (0, 0)
+    texto = origem.read_text(encoding='utf-8', errors='replace')
+    partes = da.lotes(texto)
+    feitos: set[int] = set()
+    fichas: list[dict] = []
+    if parcial.exists():
+        try:
+            j = json.loads(parcial.read_text(encoding='utf-8'))
+            feitos = set(j.get('lotes_feitos', []))
+            fichas = j.get('fichas', [])
+        except Exception:
+            feitos, fichas = (set(), [])
+    pendentes = [(i, p) for i, p in enumerate(partes) if i not in feitos]
+    falhos = 0
+    trava = threading.Lock()
+
+    def processar(par):
+        i, lote = par
+        try:
+            saida, _modelo = da.chamar(anel, lote, da.CAMADA_B)
+            return (i, saida, '')
+        except Exception as erro:
+            return (i, None, str(erro))
+    with ThreadPoolExecutor(max_workers=fluxos) as pool:
+        for n, (i, saida, erro) in enumerate(pool.map(processar, pendentes), 1):
+            with trava:
+                if saida is None:
+                    falhos += 1
+                else:
+                    for f in saida:
+                        if isinstance(f, dict):
+                            f['fonte_video'] = origem.stem
+                            fichas.append(f)
+                    feitos.add(i)
+                if n % 10 == 0 or n == len(pendentes):
+                    da._gravar_atomico(parcial, {'lotes_feitos': sorted(feitos), 'de_um_total_de': len(partes), 'fichas': fichas})
+    da._gravar_atomico(destino, {'esquema': ESQUEMA, 'fonte': origem.name, 'lotes': len(partes), 'lotes_falhos': falhos, 'corrida_morta': falhos == len(partes) and len(partes) > 0, 'fichas': fichas})
+    parcial.unlink(missing_ok=True)
+    posse.unlink(missing_ok=True)
+    return (len(fichas), falhos)
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
+    ap.add_argument('--fluxos', type=int, default=int(os.environ.get('WORKERS', '8')))
+    ap.add_argument('--limite', type=int, default=0, help='destila no maximo N videos (0 = todos)')
+    ap.add_argument('--videos-juntos', type=int, default=int(os.environ.get('APP_VIDEOS_JUNTOS', '1')), help='quantos VIDEOS destilar ao mesmo tempo (padrao 1)')
+    ap.add_argument('--prefixo', default='', help="so' destila videos cujo nome comeca assim (ex: CANAL_C)")
+    ap.add_argument('--reverso', action='store_true')
+    ap.add_argument('--corpus', type=Path, default=None, help='pasta de entrada (padrao: corpus/)')
+    ap.add_argument('--fichas', type=Path, default=None, help='pasta de saida (padrao: fichas/)')
+    args = ap.parse_args()
+    global CORPUS, FICHAS
+    if args.corpus:
+        CORPUS = args.corpus
+    if args.fichas:
+        FICHAS = args.fichas
+    FICHAS.mkdir(parents=True, exist_ok=True)
+    instrucao, esquema, origem = (INSTRUCAO, ESQUEMA, 'embutida')
+    fora = CORPUS.parent / 'instrucao_ia.json'
+    if fora.is_file():
+        try:
+            d = json.loads(fora.read_text(encoding='utf-8'))
+            if d.get('instrucao') and d.get('esquema'):
+                instrucao, esquema, origem = (d['instrucao'], d['esquema'], str(fora))
+        except Exception as e:
+            print('⚠️ %s ilegivel (%s) -- usando a embutida' % (fora, e))
+    if not (instrucao or '').strip():
+        raise SystemExit('⛔ sem INSTRUCAO: esperava %s' % fora)
+    da.INSTRUCAO = instrucao
+    globals()['ESQUEMA'] = esquema
+    print('instrucao:', origem)
+    anel = da.Anel()
+    vivas = {k: len(v) for k, v in anel.chaves.items() if v}
+    print('esquema:', ESQUEMA)
+    print('camada : CAMADA_B (Nemotron nas tres rotas, SEM gemini)')
+    print('chaves :', vivas or '⛔ NENHUMA -- nada a fazer')
+    if not vivas:
+        return 2
+    fila = obras()
+    if args.reverso:
+        fila = list(reversed(fila))
+    pendentes = [o for o in fila if not (FICHAS / (o.stem + '.json')).exists()]
+    if args.prefixo:
+        pendentes = [o for o in pendentes if o.stem.startswith(args.prefixo)]
+    print('videos no corpus:', len(fila), '| SEM ficha:', len(pendentes))
+    fila = pendentes[:args.limite] if args.limite else pendentes
+    print('videos na fila:', len(fila), '\n')
+    total_f = total_x = feitos = 0
+    trava_saida = threading.Lock()
+
+    def uma(par):
+        n, origem = par
+        alvo = FICHAS / (origem.stem + '.json')
+        if alvo.exists():
+            return (0, 0)
+        f, x = destilar(origem, anel, args.fluxos)
+        if f or x:
+            with trava_saida:
+                print('[%3d/%3d] %-58s %4d fichas | %d falhos' % (n, len(fila), '', f, x), flush=True)
+        return (f, x)
+    pares = list(enumerate(fila, 1))
+    if args.videos_juntos > 1:
+        with ThreadPoolExecutor(max_workers=args.videos_juntos) as pool:
+            resultados = list(pool.map(uma, pares))
+    else:
+        resultados = [uma(par) for par in pares]
+    for f, x in resultados:
+        if f or x:
+            feitos += 1
+            total_f += f
+            total_x += x
+    print('\nvideos destilados nesta corrida:', feitos)
+    print('fichas:', total_f, '| lotes falhos:', total_x)
+    print('saida:', FICHAS)
+    return 0
+if __name__ == '__main__':
+    raise SystemExit(main())
