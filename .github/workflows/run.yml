@@ -112,13 +112,19 @@ jobs:
           #    no repositorio e nao chega ao runner. Esse erro ja' fez este
           #    pipeline rodar com 26% da cota disponivel sem ninguem notar.
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
           GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
           GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
           GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
           GEMINI_API_KEY_6: ${{ secrets.GEMINI_API_KEY_6 }}
-          GEMINI_API_KEY_7: ${{ secrets.GEMINI_API_KEY_7 }}
           GEMINI_API_KEY_8: ${{ secrets.GEMINI_API_KEY_8 }}
+          # ⭐ Chave 9, achada em disco e TESTADA VIVA nos dois modelos
+          #    em 16/09/2026. As de numero 2 e 7 sairam daqui: devolvem
+          #    403 "project has been denied access" em 3 de 3 tentativas,
+          #    com User-Agent (o erro 1010 do Cloudflare ja' nos enganou
+          #    uma vez). ⛔ 403 condena; 503 NAO -- esse e' sobrecarga.
+          #    Os secrets continuam no repositorio, so' deixam de ser
+          #    exportados: chave morta no anel gasta uma rotacao por lote.
+          GEMINI_API_KEY_9: ${{ secrets.GEMINI_API_KEY_9 }}
           WORKERS: "8"
         # O alvo e' escolhido AQUI, a partir do que o armazenamento tem, e
         # nunca vem como entrada: entrada de workflow fica registrada na
