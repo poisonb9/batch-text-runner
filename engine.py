@@ -111,6 +111,7 @@ def para_json(txt: str) -> list[dict]:
 
 def chamar(anel: Anel, texto: str, provedores=None) -> tuple[list[dict], str]:
     ultimo = 'sem tentativa'
+    vazios: list[str] = []
     for rota, campo_02, modelo, url in provedores or PROVEDORES:
         for _ in range(max(1, anel.vivas(campo_02))):
             k = anel.proxima(campo_02)
@@ -120,6 +121,9 @@ def chamar(anel: Anel, texto: str, provedores=None) -> tuple[list[dict], str]:
                 bruto = _pedir_oai(modelo, k, texto, url) if rota == 'oai' else _pedir_gemini(modelo, k, texto, url)
                 fichas = para_json(bruto)
                 anel.contar(modelo)
+                if not fichas:
+                    vazios.append(modelo)
+                    break
                 return (fichas, modelo)
             except urllib.error.HTTPError as e:
                 ultimo = '%s HTTP %d' % (modelo, e.code)
@@ -127,6 +131,8 @@ def chamar(anel: Anel, texto: str, provedores=None) -> tuple[list[dict], str]:
                     anel.queimar(campo_02, k)
             except Exception as e:
                 ultimo = '%s %s' % (modelo, type(e).__name__)
+    if vazios:
+        return ([], '+'.join(sorted(set(vazios))))
     raise RuntimeError(ultimo)
 
 def lotes(texto: str) -> list[str]:
