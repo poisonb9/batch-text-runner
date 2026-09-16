@@ -74,7 +74,7 @@ def _tomar(posse: Path) -> bool:
         fh.write(str(os.getpid()))
     return True
 
-def destilar(origem: Path, anel, fluxos: int) -> tuple[int, int]:
+def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int, int]:
     destino = FICHAS / (origem.stem + '.json')
     parcial = FICHAS / (origem.stem + '.parcial.json')
     if destino.exists():
@@ -96,17 +96,28 @@ def destilar(origem: Path, anel, fluxos: int) -> tuple[int, int]:
     pendentes = [(i, p) for i, p in enumerate(partes) if i not in feitos]
     falhos = 0
     trava = threading.Lock()
+    modelos = set()
+    CAM_NEM = da.CAMADA_B
+    CAM_GEM = [t for t in da.CAMADA_A if t[1] == 'gemini']
+    fatia = max(0, min(10, int(gemini_em_dez)))
+
+    def camada_do_lote(i: int):
+        if fatia and CAM_GEM and (i % 10 < fatia):
+            return CAM_GEM
+        return CAM_NEM
 
     def processar(par):
         i, lote = par
         try:
-            saida, _modelo = da.chamar(anel, lote, da.CAMADA_B)
-            return (i, saida, '')
+            saida, modelo = da.chamar(anel, lote, camada_do_lote(i))
+            return (i, saida, '', modelo)
         except Exception as erro:
-            return (i, None, str(erro))
+            return (i, None, str(erro), '')
     with ThreadPoolExecutor(max_workers=fluxos) as pool:
-        for n, (i, saida, erro) in enumerate(pool.map(processar, pendentes), 1):
+        for n, (i, saida, erro, modelo) in enumerate(pool.map(processar, pendentes), 1):
             with trava:
+                if modelo:
+                    modelos.add(modelo)
                 if saida is None:
                     falhos += 1
                 else:
@@ -117,7 +128,7 @@ def destilar(origem: Path, anel, fluxos: int) -> tuple[int, int]:
                     feitos.add(i)
                 if n % 10 == 0 or n == len(pendentes):
                     da._gravar_atomico(parcial, {'lotes_feitos': sorted(feitos), 'de_um_total_de': len(partes), 'fichas': fichas})
-    da._gravar_atomico(destino, {'esquema': ESQUEMA, 'fonte': origem.name, 'lotes': len(partes), 'lotes_falhos': falhos, 'corrida_morta': falhos == len(partes) and len(partes) > 0, 'fichas': fichas})
+    da._gravar_atomico(destino, {'esquema': ESQUEMA, 'fonte': origem.name, 'lotes': len(partes), 'lotes_falhos': falhos, 'corrida_morta': falhos == len(partes) and len(partes) > 0, 'modelos': sorted(modelos), 'fichas': fichas})
     parcial.unlink(missing_ok=True)
     posse.unlink(missing_ok=True)
     return (len(fichas), falhos)
@@ -131,6 +142,7 @@ def main() -> int:
     ap.add_argument('--reverso', action='store_true')
     ap.add_argument('--corpus', type=Path, default=None, help='pasta de entrada (padrao: corpus/)')
     ap.add_argument('--fichas', type=Path, default=None, help='pasta de saida (padrao: fichas/)')
+    ap.add_argument('--gemini-em-dez', type=int, default=0, metavar='N', help='N de cada 10 lotes vao para o Gemini (0 = nenhum)')
     args = ap.parse_args()
     global CORPUS, FICHAS
     if args.corpus:
@@ -176,7 +188,7 @@ def main() -> int:
         alvo = FICHAS / (origem.stem + '.json')
         if alvo.exists():
             return (0, 0)
-        f, x = destilar(origem, anel, args.fluxos)
+        f, x = destilar(origem, anel, args.fluxos, args.gemini_em_dez)
         if f or x:
             with trava_saida:
                 print('[%3d/%3d] %-58s %4d fichas | %d falhos' % (n, len(fila), '', f, x), flush=True)

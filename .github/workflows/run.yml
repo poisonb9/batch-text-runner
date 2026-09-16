@@ -14,6 +14,12 @@ on:
         description: "quantos itens em paralelo"
         type: string
         default: "4"
+      # ⛔ 0 = provedor unico, que e' o padrao historico. Misturar e' escolha
+      #    explicita de quem dispara, nunca um default silencioso.
+      mistura:
+        description: "N de cada 10 lotes no provedor secundario (0 = nenhum)"
+        type: string
+        default: "0"
 
 concurrency:
   group: run
@@ -84,6 +90,20 @@ jobs:
           NVIDIA_API_KEY_3: ${{ secrets.NVIDIA_API_KEY_3 }}
           NVIDIA_API_KEY_4: ${{ secrets.NVIDIA_API_KEY_4 }}
           NVIDIA_API_KEY_5: ${{ secrets.NVIDIA_API_KEY_5 }}
+          NVIDIA_API_KEY_6: ${{ secrets.NVIDIA_API_KEY_6 }}
+          NVIDIA_API_KEY_7: ${{ secrets.NVIDIA_API_KEY_7 }}
+          NVIDIA_API_KEY_8: ${{ secrets.NVIDIA_API_KEY_8 }}
+          # ⛔ Secret que o `env` NAO declara e' INVISIVEL ao processo: existe
+          #    no repositorio e nao chega ao runner. Esse erro ja' fez este
+          #    pipeline rodar com 26% da cota disponivel sem ninguem notar.
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_API_KEY_2: ${{ secrets.GEMINI_API_KEY_2 }}
+          GEMINI_API_KEY_3: ${{ secrets.GEMINI_API_KEY_3 }}
+          GEMINI_API_KEY_4: ${{ secrets.GEMINI_API_KEY_4 }}
+          GEMINI_API_KEY_5: ${{ secrets.GEMINI_API_KEY_5 }}
+          GEMINI_API_KEY_6: ${{ secrets.GEMINI_API_KEY_6 }}
+          GEMINI_API_KEY_7: ${{ secrets.GEMINI_API_KEY_7 }}
+          GEMINI_API_KEY_8: ${{ secrets.GEMINI_API_KEY_8 }}
           WORKERS: "8"
         # O alvo e' escolhido AQUI, a partir do que o armazenamento tem, e
         # nunca vem como entrada: entrada de workflow fica registrada na
@@ -110,7 +130,8 @@ jobs:
             --corpus dados/corpus --fichas dados/fichas \
             --prefixo "$ALVO" \
             --limite ${{ inputs.limite || 0 }} \
-            --videos-juntos ${{ inputs.juntos || 4 }}
+            --videos-juntos ${{ inputs.juntos || 4 }} \
+            --gemini-em-dez ${{ inputs.mistura || 0 }}
           echo "EXITCODE REAL: $?"
 
       # Puxar antes de empurrar: o armazenamento pode ter andado durante a
