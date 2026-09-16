@@ -150,19 +150,56 @@ jobs:
           #    e' exatamente o desperdicio que este desenho existe para evitar.
           if not falta or (ponta != 'menor' and len(falta) < 2):
               print('')
+          elif ponta != 'menor':
+              print(falta[-1][1])
           else:
-              print(falta[-1][1] if ponta != 'menor' else falta[0][1])
+              # UMA CORRIDA POR ITEM E' QUASE SO' OVERHEAD. Medido em
+              #    16/09/2026: a ponta `menor` pegou um lote de 1 video e a
+              #    corrida levou 33 s -- checkout, setup-python e clone do
+              #    armazenamento para destilar UM texto. Com dezenas de
+              #    lotes curtos pendentes, a ponta gira sem produzir.
+              #    Agora ela ACUMULA lotes curtos ate' juntar trabalho que
+              #    pague a partida, e processa todos na MESMA corrida.
+              #    O ultimo lote (o maior) fica SEMPRE de fora: e' o alvo
+              #    da outra ponta, e as duas no mesmo texto pagariam o
+              #    modelo duas vezes -- a mesma razao do guarda acima.
+              MINIMO = int(os.environ.get('ALVO_MINIMO', '60'))
+              candidatos = falta[:-1] if len(falta) > 1 else falta
+              escolhidos, soma = [], 0
+              for n, k in candidatos:
+                  escolhidos.append(k)
+                  soma += n
+                  if soma >= MINIMO:
+                      break
+              for k in escolhidos:
+                  print(k)
           PY
           )
           if [ -z "$ALVO" ]; then echo "nada para esta ponta"; exit 0; fi
-          echo "lote pendente: $(ls dados/corpus | grep -c "^$ALVO - ") itens"
-          python process.py \
-            --corpus dados/corpus --fichas dados/fichas \
-            --prefixo "$ALVO" \
-            --limite ${{ inputs.limite || 0 }} \
-            --videos-juntos ${{ inputs.juntos || 4 }} \
-            --gemini-em-dez ${{ inputs.mistura || 0 }}
-          echo "EXITCODE REAL: $?"
+          # O NOME DO ALVO NAO E' ECOADO, so' o tamanho -- corrida de
+          #    repositorio publico e' publica. Vale para cada lote do laco.
+          echo "lotes nesta corrida: $(echo "$ALVO" | grep -c .)"
+          pior=0
+          echo "$ALVO" | while IFS= read -r alvo; do
+            [ -z "$alvo" ] && continue
+            echo "lote pendente: $(ls dados/corpus | grep -c "^$alvo - ") itens"
+            python process.py \
+              --corpus dados/corpus --fichas dados/fichas \
+              --prefixo "$alvo" \
+              --limite ${{ inputs.limite || 0 }} \
+              --videos-juntos ${{ inputs.juntos || 4 }} \
+              --gemini-em-dez ${{ inputs.mistura || 0 }}
+            c=$?
+            echo "EXITCODE REAL: $c"
+            # UM LOTE QUE FALHA NAO ABORTA OS OUTROS, mas tambem nao some:
+            #    sair no primeiro erro descartaria o trabalho dos lotes
+            #    seguintes, e foi assim que uma corrida de 1h02 virou nada.
+            [ "$c" -gt "$pior" ] && pior=$c
+            echo "$pior" > /tmp/pior
+          done
+          pior=$(cat /tmp/pior 2>/dev/null || echo 0)
+          echo "PIOR EXITCODE REAL: $pior"
+          exit "$pior"
 
       # Puxar antes de empurrar: o armazenamento pode ter andado durante a
       # corrida, e um push cego devolve `fetch first` e descarta o trabalho.
