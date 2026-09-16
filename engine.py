@@ -21,7 +21,7 @@ URL_NV = 'https://integrate.api.nvidia.com/v1/chat/completions'
 URL_GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s'
 CAMADA_A = [('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV), ('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b:free', URL_OR), ('gemini', 'gemini', 'gemini-flash-lite-latest', URL_GEMINI)]
 CAMADA_GEMINI = [('gemini', 'gemini', 'gemini-flash-lite-latest', URL_GEMINI), ('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV)]
-CAMADA_B = [('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b:free', URL_OR), ('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b', URL_OR), ('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV)]
+CAMADA_B = [('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b:free', URL_OR), ('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV), ('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b', URL_OR)]
 PROVEDORES = CAMADA_A
 OBRAS_NEMOTRON = []
 
