@@ -45,9 +45,23 @@ jobs:
       - name: buscar os dados
         env:
           STORE_REPO: ${{ secrets.STORE_REPO }}
+        # So' o necessario desce: os dados de entrada, os resultados ja' feitos
+        # (para saber o que pular) e a configuracao. O codigo-fonte do
+        # armazenamento NAO vem -- ele nao e' preciso aqui e carrega historico
+        # do projeto que nao tem por que atravessar a rede a cada corrida.
+        # Medido em 16/09: o clone cheio eram 269 MB, dos quais 13% uteis.
         run: |
-          git clone --depth 1 "$STORE_REPO" dados
-          echo "arquivos: $(ls dados/corpus | wc -l)"
+          git clone --depth 1 --filter=blob:none --no-checkout "$STORE_REPO" dados
+          cd dados
+          git sparse-checkout init --no-cone
+          git sparse-checkout set '/corpus/' '/fichas/' '/instrucao_ia.json'
+          git checkout
+          # Guarda: sparse mal configurado devolve ZERO arquivo, e destilar o
+          # vazio sairia "sucesso" sem produzir nada. Falha alto em vez disso.
+          n=$(ls corpus 2>/dev/null | wc -l)
+          echo "entradas: $n"
+          if [ "$n" -eq 0 ]; then echo "sem entradas -- abortando"; exit 1; fi
+          if [ ! -f instrucao_ia.json ]; then echo "sem configuracao -- abortando"; exit 1; fi
 
       - name: processar
         env:
