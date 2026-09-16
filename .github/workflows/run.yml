@@ -20,9 +20,24 @@ on:
         description: "N de cada 10 lotes no provedor secundario (0 = nenhum)"
         type: string
         default: "0"
+      # ⭐ De qual PONTA da lista pendente este fluxo tira o proximo lote.
+      #    Dois fluxos em pontas opostas nunca escolhem o mesmo alvo enquanto
+      #    houver mais de um lote pendente -- e' isso que permite os dois
+      #    provedores trabalharem juntos sem colidir e sem pagar duas vezes.
+      # ⚠️ Quando sobrar UM SO' lote, as duas pontas apontam para ele. O passo
+      #    de selecao detecta isso e o fluxo secundario sai sem fazer nada.
+      ponta:
+        description: "de qual ponta tirar o lote: menor ou maior"
+        type: string
+        default: "menor"
 
+# ⛔ O GRUPO E' POR PONTA, e nao unico. Com `group: run` so' UMA corrida existe
+#    por vez, entao um segundo provedor nunca rodaria junto -- ele ficaria na
+#    fila esperando o primeiro, que e' o oposto de trabalhar em paralelo.
+# ⭐ Cada ponta tem seu proprio grupo: as duas correm ao mesmo tempo, e dentro
+#    de cada ponta continua valendo uma de cada vez.
 concurrency:
-  group: run
+  group: run-${{ inputs.ponta || 'menor' }}
   cancel-in-progress: false
 
 permissions:
@@ -111,8 +126,9 @@ jobs:
         # Ele tambem nao e' ecoado -- so' o tamanho do lote.
         run: |
           set +x
+          export PONTA="${{ inputs.ponta || 'menor' }}"
           ALVO=$(python - <<'PY'
-          import collections
+          import collections, os
           from pathlib import Path
           c = collections.Counter(p.name.split(' - ', 1)[0]
                                   for p in Path('dados/corpus').glob('*.txt')
@@ -121,10 +137,18 @@ jobs:
                                   for p in Path('dados/fichas').glob('*.json')
                                   if not p.name.endswith('.parcial.json'))
           falta = sorted((n, k) for k, n in c.items() if f.get(k, 0) < n)
-          print(falta[0][1] if falta else '')
+          ponta = os.environ.get('PONTA', 'menor')
+          # ⛔ COM UM LOTE SO', as duas pontas apontam para o mesmo alvo. O
+          #    fluxo secundario sai VAZIO em vez de duplicar: dois provedores
+          #    no mesmo lote pagariam o modelo duas vezes pelo mesmo texto, que
+          #    e' exatamente o desperdicio que este desenho existe para evitar.
+          if not falta or (ponta != 'menor' and len(falta) < 2):
+              print('')
+          else:
+              print(falta[-1][1] if ponta != 'menor' else falta[0][1])
           PY
           )
-          if [ -z "$ALVO" ]; then echo "nada pendente"; exit 0; fi
+          if [ -z "$ALVO" ]; then echo "nada para esta ponta"; exit 0; fi
           echo "lote pendente: $(ls dados/corpus | grep -c "^$ALVO - ") itens"
           python process.py \
             --corpus dados/corpus --fichas dados/fichas \
