@@ -88,6 +88,16 @@ def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int
     posse = FICHAS / (origem.stem + '.posse')
     if not _tomar(posse):
         return (0, 0, 0)
+    espera_h = float(os.environ.get('ESPERA_RETENTATIVA_H', '6'))
+    marca = FALHAS / (origem.stem + '.json')
+    if espera_h > 0 and marca.exists():
+        try:
+            idade = (time.time() - marca.stat().st_mtime) / 3600.0
+        except OSError:
+            idade = espera_h + 1
+        if idade < espera_h:
+            posse.unlink(missing_ok=True)
+            return (0, 0, 0)
     texto = origem.read_text(encoding='utf-8', errors='replace')
     partes = da.lotes(texto)
     feitos: set[int] = set()
