@@ -84,7 +84,7 @@ jobs:
           if [ "$n" -eq 0 ]; then echo "sem entradas -- abortando"; exit 1; fi
           if [ ! -f instrucao_ia.json ]; then echo "sem configuracao -- abortando"; exit 1; fi
 
-      - name: processar
+      - name: processar e devolver em pedacos
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           OPENROUTER_API_KEY_2: ${{ secrets.OPENROUTER_API_KEY_2 }}
@@ -133,6 +133,11 @@ jobs:
         run: |
           set +x
           export PONTA="${{ inputs.ponta || 'menor' }}"
+          # ⛔ PEDACO: quantos videos por commit. A corrida 35171865637
+          #    perdeu 5h inteiras porque o commit so' vinha no fim e o
+          #    `timeout-minutes: 300` a cancelou antes. Agora o prejuizo
+          #    maximo de um estouro e' UM pedaco.
+          PEDACO=${PEDACO:-300}
           ALVO=$(python - <<'PY'
           import collections, os
           from pathlib import Path
@@ -176,49 +181,61 @@ jobs:
           PY
           )
           if [ -z "$ALVO" ]; then echo "nada para esta ponta"; exit 0; fi
-          # O NOME DO ALVO NAO E' ECOADO, so' o tamanho -- corrida de
-          #    repositorio publico e' publica. Vale para cada lote do laco.
           echo "lotes nesta corrida: $(echo "$ALVO" | grep -c .)"
           pior=0
           echo "$ALVO" | while IFS= read -r alvo; do
             [ -z "$alvo" ] && continue
-            echo "lote pendente: $(ls dados/corpus | grep -c "^$alvo - ") itens"
-            python process.py \
-              --corpus dados/corpus --fichas dados/fichas \
-              --prefixo "$alvo" \
-              --limite ${{ inputs.limite || 0 }} \
-              --videos-juntos ${{ inputs.juntos || 4 }} \
-              --gemini-em-dez ${{ inputs.mistura || 0 }}
-            c=$?
-            echo "EXITCODE REAL: $c"
-            # UM LOTE QUE FALHA NAO ABORTA OS OUTROS, mas tambem nao some:
-            #    sair no primeiro erro descartaria o trabalho dos lotes
-            #    seguintes, e foi assim que uma corrida de 1h02 virou nada.
-            [ "$c" -gt "$pior" ] && pior=$c
-            echo "$pior" > /tmp/pior
+            total=$(ls dados/corpus | grep -c "^$alvo - ")
+            echo "lote pendente: $total itens"
+            # ⭐ Cada volta destila ate' PEDACO videos e COMMITA. Repetir e'
+            #    seguro: o destilador pula quem ja' tem ficha, entao a volta
+            #    seguinte nunca refaz a anterior. O laco para quando uma
+            #    volta nao produz arquivo novo.
+            while true; do
+              # ⛔ CONTA `_falhas/` TAMBEM. Um pedaco inteiro pode cair em
+              #    video sem saida -- isso vai para `fichas/_falhas/` e nao
+              #    sobe a contagem de `fichas/`. Medir so' a pasta de cima
+              #    leria "nao rendeu" e abandonaria o resto do lote, que e'
+              #    justamente o que este conserto existe para evitar.
+              antes=$(find dados/fichas -name "*.json" | wc -l)
+              python process.py \
+                --corpus dados/corpus --fichas dados/fichas \
+                --prefixo "$alvo" \
+                --limite "$PEDACO" \
+                --videos-juntos ${{ inputs.juntos || 4 }} \
+                --gemini-em-dez ${{ inputs.mistura || 0 }}
+              c=$?
+              echo "EXITCODE REAL: $c"
+              [ "$c" -gt "$pior" ] && pior=$c
+              echo "$pior" > /tmp/pior
+            cd dados
+            git config user.name "runner"
+            git config user.email "runner@users.noreply.github.com"
+            alvos=""
+            for p in fichas corpus; do [ -e "$p" ] && alvos="$alvos $p"; done
+            if [ -n "$alvos" ]; then
+              git add $alvos
+              if git diff --cached --quiet; then
+                echo "nada novo neste pedaco."
+              else
+                git commit -q -m "runner: resultados novos ($(date -u +%Y-%m-%d))"
+                # O pull ANTES do push, e sem empurrar por cima se falhar.
+                # Com commits frequentes o remoto anda mais, nao menos.
+                if git pull --rebase; then
+                  git push && echo "PUSH EXITCODE REAL: $?"
+                else
+                  echo "rebase falhou -- NAO empurro; o trabalho fica no clone"
+                fi
+              fi
+            fi
+            cd ..
+              depois=$(find dados/fichas -name "*.json" | wc -l)
+              if [ "$depois" -le "$antes" ]; then
+                echo "pedaco nao produziu ficha nova -- encerro este lote"
+                break
+              fi
+            done
           done
           pior=$(cat /tmp/pior 2>/dev/null || echo 0)
           echo "PIOR EXITCODE REAL: $pior"
           exit "$pior"
-
-      # Puxar antes de empurrar: o armazenamento pode ter andado durante a
-      # corrida, e um push cego devolve `fetch first` e descarta o trabalho.
-      # So' os caminhos existentes entram no `add`: pathspec que nao casa faz o
-      # `git add` NAO estagiar nada, inclusive o que era valido.
-      - name: devolver o resultado
-        run: |
-          cd dados
-          git config user.name "runner"
-          git config user.email "runner@users.noreply.github.com"
-          alvos=""
-          for p in fichas corpus; do [ -e "$p" ] && alvos="$alvos $p"; done
-          [ -z "$alvos" ] && { echo "nada a estagiar"; exit 1; }
-          git add $alvos
-          if git diff --cached --quiet; then
-            echo "nada novo."
-          else
-            git commit -q -m "runner: resultados novos ($(date -u +%Y-%m-%d))"
-            git pull --rebase || { echo "rebase falhou -- NAO empurro"; exit 1; }
-            git push
-            echo "PUSH EXITCODE REAL: $?"
-          fi
