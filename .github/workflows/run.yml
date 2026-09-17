@@ -131,6 +131,12 @@ jobs:
         # corrida, e num repositorio publico isso publicaria o alvo.
         # Ele tambem nao e' ecoado -- so' o tamanho do lote.
         run: |
+          # O GitHub roda o passo com `bash -eo pipefail`. Com `-e`, o primeiro
+          # lote que falhar aborta a corrida inteira e os demais nem sao
+          # tentados -- e foi assim que uma corrida de 1h02 virou nada.
+          # Aqui o tratamento de erro e' NOSSO: cada codigo e' capturado, o
+          # pior sobrevive ate' o fim, e a corrida termina com ele.
+          set +e +o pipefail
           set +x
           export PONTA="${{ inputs.ponta || 'menor' }}"
           # ⛔ PEDACO: quantos videos por commit. A corrida 35171865637
@@ -219,19 +225,17 @@ jobs:
             #    seguinte nunca refaz a anterior. O laco para quando uma
             #    volta nao produz arquivo novo.
             while true; do
-              # ⛔ CONTA `_falhas/` TAMBEM. Um pedaco inteiro pode cair em
-              #    video sem saida -- isso vai para `fichas/_falhas/` e nao
-              #    sobe a contagem de `fichas/`. Medir so' a pasta de cima
-              #    leria "nao rendeu" e abandonaria o resto do lote, que e'
-              #    justamente o que este conserto existe para evitar.
-              antes=$(find dados/fichas -name "*.json" | wc -l)
               python process.py \
                 --corpus dados/corpus --fichas dados/fichas \
                 --prefixo "$alvo" \
                 --limite "$PEDACO" \
                 --videos-juntos ${{ inputs.juntos || 4 }} \
-                --gemini-em-dez ${{ inputs.mistura || 0 }}
-              c=$?
+                --gemini-em-dez ${{ inputs.mistura || 0 }} 2>&1 | tee /tmp/saida
+              # ⛔ `$?` depois de um pipe e' do TEE, nao do python. O codigo
+              #    do destilador vem de PIPESTATUS -- senao a corrida
+              #    reportaria sucesso sobre uma falha, que e' o mesmo
+              #    "exit 0 que mente" que ja' mordeu este projeto nove vezes.
+              c=${PIPESTATUS[0]}
               echo "EXITCODE REAL: $c"
               [ "$c" -gt "$pior" ] && pior=$c
               echo "$pior" > /tmp/pior
@@ -256,9 +260,18 @@ jobs:
               fi
             fi
             cd ..
-              depois=$(find dados/fichas -name "*.json" | wc -l)
-              if [ "$depois" -le "$antes" ]; then
-                echo "pedaco nao produziu ficha nova -- encerro este lote"
+              # ⛔⛔ CONTAR ARQUIVO NAO MEDE TRABALHO. Video sem saida
+              #    SOBRESCREVE o arquivo que ja' existia em `_falhas/`:
+              #    mesmo nome, mesma contagem. O laco lia "nao rendeu" e
+              #    largava o lote com centenas de pendentes -- medido, um
+              #    lote de 308 itens encerrado apos processar 6.
+              # ⭐ Quem sabe se houve trabalho e' o destilador. Zero video
+              #    processado significa que nao ha mais o que fazer aqui.
+              feitos=$(grep -oE 'videos destilados nesta corrida: [0-9]+' /tmp/saida | tail -1 | grep -oE '[0-9]+$')
+              feitos=${feitos:-0}
+              echo "videos processados neste pedaco: $feitos"
+              if [ "$feitos" -eq 0 ]; then
+                echo "pedaco nao processou video algum -- encerro este lote"
                 break
               fi
             done
