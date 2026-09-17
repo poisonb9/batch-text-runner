@@ -172,11 +172,12 @@ def main() -> int:
     ap.add_argument('--fichas', type=Path, default=None, help='pasta de saida (padrao: fichas/)')
     ap.add_argument('--gemini-em-dez', type=int, default=0, metavar='N', help='N de cada 10 lotes vao para o Gemini (0 = nenhum)')
     args = ap.parse_args()
-    global CORPUS, FICHAS
+    global CORPUS, FICHAS, FALHAS
     if args.corpus:
         CORPUS = args.corpus
     if args.fichas:
         FICHAS = args.fichas
+    FALHAS = FICHAS / '_falhas'
     FICHAS.mkdir(parents=True, exist_ok=True)
     instrucao, esquema, origem = (INSTRUCAO, ESQUEMA, 'embutida')
     fora = CORPUS.parent / 'instrucao_ia.json'
