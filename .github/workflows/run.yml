@@ -155,8 +155,6 @@ jobs:
           #    e' exatamente o desperdicio que este desenho existe para evitar.
           if not falta or (ponta != 'menor' and len(falta) < 2):
               print('')
-          elif ponta != 'menor':
-              print(falta[-1][1])
           else:
               # UMA CORRIDA POR ITEM E' QUASE SO' OVERHEAD. Medido em
               #    16/09/2026: a ponta `menor` pegou um lote de 1 video e a
@@ -165,17 +163,31 @@ jobs:
               #    lotes curtos pendentes, a ponta gira sem produzir.
               #    Agora ela ACUMULA lotes curtos ate' juntar trabalho que
               #    pague a partida, e processa todos na MESMA corrida.
-              #    O ultimo lote (o maior) fica SEMPRE de fora: e' o alvo
-              #    da outra ponta, e as duas no mesmo texto pagariam o
-              #    modelo duas vezes -- a mesma razao do guarda acima.
+              # ⭐ AS DUAS PONTAS VARREM A MESMA LISTA CRESCENTE, em fatias
+              #    diferentes. `menor` leva as primeiras ate' juntar MINIMO
+              #    videos; `maior` comeca EXATAMENTE onde ela parou e leva as
+              #    seguintes pela mesma regra. Sem sobreposicao, e a fila anda
+              #    do menor para o maior ate' acabar.
+              # ⛔ O desenho anterior mandava `maior` buscar o MAIOR lote, e
+              #    lote gigante e' o que estoura o `timeout-minutes: 300`: o
+              #    `ecommercenapratica` (2.013 videos) consumiu 5h e foi
+              #    cancelado sem commitar nada.
               MINIMO = int(os.environ.get('ALVO_MINIMO', '60'))
-              candidatos = falta[:-1] if len(falta) > 1 else falta
-              escolhidos, soma = [], 0
-              for n, k in candidatos:
-                  escolhidos.append(k)
-                  soma += n
-                  if soma >= MINIMO:
-                      break
+
+              def fatia(inicio):
+                  saiu, soma = [], 0
+                  for n, k in falta[inicio:]:
+                      saiu.append(k)
+                      soma += n
+                      if soma >= MINIMO:
+                          break
+                  return saiu
+
+              primeira = fatia(0)
+              if ponta == 'menor':
+                  escolhidos = primeira
+              else:
+                  escolhidos = fatia(len(primeira))
               for k in escolhidos:
                   print(k)
           PY
