@@ -1,4 +1,12 @@
 name: run
+# ⭐ O NOME DA CORRIDA DIZ DE QUE PONTA ELA E'. Sem isso, quem orquestra
+#    precisa adivinhar por ID -- e quando as duas pontas disparam com
+#    segundos de diferenca, uma adota o ID da outra, acha que fechou,
+#    dispara de novo, e o GitHub cancela a pendente anterior (so' uma por
+#    grupo). Cascata de cancelamento, medida em 17/09/2026: quatro corridas
+#    canceladas em sequencia.
+# ⚠️ `menor`/`maior` nao revela nada: sao nomes de ponta, nao de canal.
+run-name: run ${{ inputs.ponta || 'menor' }}
 
 # O dado NAO vive aqui. Ele e' clonado de um repositorio privado no inicio da
 # corrida, processado no runner, e devolvido ao mesmo lugar no fim. Nada do
