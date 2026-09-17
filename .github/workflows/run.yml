@@ -224,7 +224,17 @@ jobs:
             #    seguro: o destilador pula quem ja' tem ficha, entao a volta
             #    seguinte nunca refaz a anterior. O laco para quando uma
             #    volta nao produz arquivo novo.
+            # ⭐ PENDENTE DO LOTE: corpus menos ficha, so' do prefixo deste
+            #    lote. E' a unica das tres medidas que separa "rendeu" de
+            #    "insistiu": quem vai para `_falhas/` continua pendente.
+            pendentes_do_lote () {
+              local n_corpus n_ficha
+              n_corpus=$(ls dados/corpus | grep -c "^$1 - ")
+              n_ficha=$(ls dados/fichas 2>/dev/null | grep -c "^$1 - ")
+              echo $((n_corpus - n_ficha))
+            }
             while true; do
+              antes=$(pendentes_do_lote "$alvo")
               python process.py \
                 --corpus dados/corpus --fichas dados/fichas \
                 --prefixo "$alvo" \
@@ -260,18 +270,22 @@ jobs:
               fi
             fi
             cd ..
-              # ⛔⛔ CONTAR ARQUIVO NAO MEDE TRABALHO. Video sem saida
-              #    SOBRESCREVE o arquivo que ja' existia em `_falhas/`:
-              #    mesmo nome, mesma contagem. O laco lia "nao rendeu" e
-              #    largava o lote com centenas de pendentes -- medido, um
-              #    lote de 308 itens encerrado apos processar 6.
-              # ⭐ Quem sabe se houve trabalho e' o destilador. Zero video
-              #    processado significa que nao ha mais o que fazer aqui.
-              feitos=$(grep -oE 'videos destilados nesta corrida: [0-9]+' /tmp/saida | tail -1 | grep -oE '[0-9]+$')
-              feitos=${feitos:-0}
-              echo "videos processados neste pedaco: $feitos"
-              if [ "$feitos" -eq 0 ]; then
-                echo "pedaco nao processou video algum -- encerro este lote"
+              # ⛔⛔ AS DUAS MEDIDAS ANTERIORES ERRARAM PARA LADOS OPOSTOS:
+              #    contar ARQUIVO largava o lote cedo demais (video sem
+              #    saida sobrescreve o `_falhas/` de antes: mesma
+              #    contagem); contar VIDEO PROCESSADO nunca saia, porque
+              #    os que caem em `_falhas/` voltam no pedaco seguinte e
+              #    sao processados de novo ate' estourar as 5h.
+              # ⭐ O PENDENTE do lote separa os dois casos: so' cai quando
+              #    o video ganha ficha de verdade ou quando as duas
+              #    familias concordam no vazio. Se nao caiu, insistir aqui
+              #    e' pagar o modelo para ouvir a mesma coisa.
+              # ⚠️ O lote NAO e' abandonado: continua pendente e volta na
+              #    corrida seguinte, com o anel de chaves recomposto.
+              depois=$(pendentes_do_lote "$alvo")
+              echo "pendentes do lote: $antes -> $depois"
+              if [ "$depois" -ge "$antes" ]; then
+                echo "o pendente nao caiu -- encerro este lote por ora"
                 break
               fi
             done
