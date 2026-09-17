@@ -174,20 +174,35 @@ jobs:
               #    cancelado sem commitar nada.
               MINIMO = int(os.environ.get('ALVO_MINIMO', '60'))
 
-              def fatia(inicio):
-                  saiu, soma = [], 0
-                  for n, k in falta[inicio:]:
-                      saiu.append(k)
-                      soma += n
-                      if soma >= MINIMO:
-                          break
-                  return saiu
-
-              primeira = fatia(0)
-              if ponta == 'menor':
-                  escolhidos = primeira
-              else:
-                  escolhidos = fatia(len(primeira))
+              # ⛔⛔ A FATIA POR POSICAO NAO SEGURA, e isto foi medido em
+              #    17/09/2026: cada corrida calcula a lista NO INSTANTE em que
+              #    comeca. A ponta `maior` esperou 1h42 na fila do
+              #    `concurrency`; quando rodou, a `menor` ja' tinha avancado e
+              #    as duas fatias se sobrepuseram -- corrida inteira gasta para
+              #    17 fichas num lote que ja' estava quase todo feito.
+              # ⛔ PARIDADE DE INDICE TAMBEM NAO SEGURA, e a simulacao pegou
+              #    isso antes de publicar: quando a `menor` fecha lotes, a
+              #    lista ENCOLHE e todos os indices deslizam -- a `maior`, ao
+              #    recalcular, cai em cima do que a outra ja' levou.
+              # ⭐ A chave tem de ser INTRINSECA ao lote, nao a posicao dele.
+              #    O nome do canal decide de que lado ele fica, por hash
+              #    estavel. A lista pode encolher, crescer ou reordenar: o
+              #    lado de cada lote nunca muda, e as duas pontas continuam
+              #    varrendo do menor para o maior sem se cruzar.
+              # ⚠️ `hash()` do Python NAO serve: ele e' aleatorizado por
+              #    processo, entao as duas corridas dariam respostas
+              #    diferentes para o mesmo nome.
+              import hashlib
+              def lado(nome):
+                  d = hashlib.md5(nome.encode('utf-8')).hexdigest()
+                  return int(d, 16) % 2 == 0
+              meus = [(n, k) for n, k in falta if lado(k) == (ponta == 'menor')]
+              escolhidos, soma = [], 0
+              for n, k in meus:
+                  escolhidos.append(k)
+                  soma += n
+                  if soma >= MINIMO:
+                      break
               for k in escolhidos:
                   print(k)
           PY
