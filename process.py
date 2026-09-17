@@ -114,9 +114,10 @@ def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int
     trava = threading.Lock()
     modelos = set()
     CAM_NEM = da.CAMADA_B
-    ROTA_GEM = ('gemini', 'gemini', 'gemini-3.5-flash', da.URL_GEMINI)
-    CAM_GEM = [ROTA_GEM] + list(CAM_NEM)
-    CAM_NEM = list(CAM_NEM) + [ROTA_GEM]
+    ROTAS_GEM = [('gemini', 'gemini', m, da.URL_GEMINI) for m in ('gemini-3.5-flash', 'gemini-3.7-flash', 'gemini-flash-lite-latest')]
+    ROTA_GEM = ROTAS_GEM[0]
+    CAM_GEM = list(ROTAS_GEM) + list(CAM_NEM)
+    CAM_NEM = list(CAM_NEM) + list(ROTAS_GEM)
     fatia = max(0, min(10, int(gemini_em_dez)))
     GRATIS = [r for r in da.CAMADA_B if not _e_paga(r)]
     PAGAS = [r for r in da.CAMADA_B if _e_paga(r)]
@@ -127,7 +128,7 @@ def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int
         if len(GRATIS) < 2:
             return CAM_NEM
         k = i % len(GRATIS)
-        return GRATIS[k:] + GRATIS[:k] + PAGAS + [ROTA_GEM]
+        return GRATIS[k:] + GRATIS[:k] + PAGAS + list(ROTAS_GEM)
 
     def processar(par):
         i, lote = par
@@ -155,7 +156,8 @@ def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int
         rotas = set()
         for m in modelos:
             rotas.update(m.split('+'))
-        acordo = falhos == 0 and len(rotas) >= 2
+        familias = {'gemini' if 'gemini' in r else 'nemotron' for r in rotas}
+        acordo = falhos == 0 and len(familias) >= 2
         if acordo:
             da._gravar_atomico(destino, {'esquema': ESQUEMA, 'fonte': origem.name, 'lotes': len(partes), 'lotes_falhos': 0, 'corrida_morta': False, 'sem_saida_confirmado': True, 'rotas_que_concordaram': sorted(rotas), 'modelos': sorted(modelos), 'fichas': [], 'quando': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())})
             parcial.unlink(missing_ok=True)
