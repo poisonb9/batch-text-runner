@@ -242,6 +242,12 @@ def main() -> int:
         pendentes = [o for o in pendentes if not em_espera(o)]
         if antes != len(pendentes):
             print('em espera (segunda opiniao recente):', antes - len(pendentes))
+    reabertos = FICHAS / '_reabertos'
+    if reabertos.exists():
+        pendentes.sort(key=lambda o: ((reabertos / (o.stem + '.json')).exists(), o.name))
+        n_re = sum((1 for o in pendentes if (reabertos / (o.stem + '.json')).exists()))
+        if n_re:
+            print('reabertos, no fim da fila:', n_re)
     print('videos no corpus:', len(fila), '| DISPONIVEIS:', len(pendentes))
     fila = pendentes[:args.limite] if args.limite else pendentes
     print('videos na fila:', len(fila), '\n')
