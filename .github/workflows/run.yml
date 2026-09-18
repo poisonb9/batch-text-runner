@@ -161,7 +161,32 @@ jobs:
           f = collections.Counter(p.name.split(' - ', 1)[0]
                                   for p in Path('dados/fichas').glob('*.json')
                                   if not p.name.endswith('.parcial.json'))
-          falta = sorted((n, k) for k, n in c.items() if f.get(k, 0) < n)
+          # ⛔⛔ VIDEO EM ESPERA NAO CONTA COMO DISPONIVEL. O destilador ja'
+          #     pulava quem ficou sem segunda opiniao ha pouco, mas o seletor
+          #     nao sabia: escolhia o lote pelo pendente BRUTO, a corrida
+          #     chegava la' e fechava com "videos destilados: 0". Medido em
+          #     18/09/2026: duas horas de corridas assim, sem uma ficha.
+          # ⚠️ A idade vem do carimbo `quando` gravado DENTRO do registro.
+          #    `git clone` reescreve a data de todo arquivo, entao no runner o
+          #    `mtime` diz sempre "agora" -- e a espera bloquearia tudo.
+          import json as _json, time as _time
+          espera_h = float(os.environ.get('ESPERA_RETENTATIVA_H', '6'))
+          esperando = collections.Counter()
+          if espera_h > 0:
+              agora = _time.time()
+              for p in Path('dados/fichas/_falhas').glob('*.json'):
+                  try:
+                      q = _json.loads(p.read_text(encoding='utf-8')).get('quando')
+                      if not q:
+                          continue
+                      t = _time.mktime(_time.strptime(q, '%Y-%m-%dT%H:%M:%SZ'))
+                      if 0 <= (agora - (t - _time.timezone)) / 3600.0 < espera_h:
+                          esperando[p.name.split(' - ', 1)[0]] += 1
+                  except Exception:
+                      continue
+          falta = sorted((n - f.get(k, 0) - esperando.get(k, 0), k)
+                         for k in c)
+          falta = [(n, k) for n, k in falta if n > 0]
           ponta = os.environ.get('PONTA', 'menor')
           # ⛔ COM UM LOTE SO', as duas pontas apontam para o mesmo alvo. O
           #    fluxo secundario sai VAZIO em vez de duplicar: dois provedores
