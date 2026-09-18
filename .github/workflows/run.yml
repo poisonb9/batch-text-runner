@@ -267,7 +267,19 @@ jobs:
               #    lote gigante e' o que estoura o `timeout-minutes: 300`: o
               #    `ecommercenapratica` (2.013 videos) consumiu 5h e foi
               #    cancelado sem commitar nada.
-              MINIMO = int(os.environ.get('ALVO_MINIMO', '60'))
+              # ⛔⛔ SO' UM JOB RODA POR VEZ nesta conta -- medido em
+              #     18/09/2026: as corridas saem sempre em sequencia, nunca
+              #     duas em paralelo, e a ponta que fica de fora acumula
+              #     `pending` com ZERO jobs criados (32 min numa, 13 em outra).
+              #     O desenho de duas pontas nao compra paralelismo aqui.
+              # ⭐ Se so' uma roda por vez, cada corrida precisa render mais:
+              #    com 60 videos de alvo, os ~30 s de partida (checkout,
+              #    setup-python, clone do armazenamento) pesavam demais no
+              #    total. 400 amortiza a partida sobre 6x mais trabalho.
+              # ⚠️ O teto real por corrida continua sendo o `timeout-minutes:
+              #    300` -- e o commit em pedacos garante que estourar custa so'
+              #    um pedaco.
+              MINIMO = int(os.environ.get('ALVO_MINIMO', '400'))
 
               # ⛔⛔ A FATIA POR POSICAO NAO SEGURA, e isto foi medido em
               #    17/09/2026: cada corrida calcula a lista NO INSTANTE em que
