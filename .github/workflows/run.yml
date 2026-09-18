@@ -160,7 +160,7 @@ jobs:
           #     "Fila vazia" e "seletor quebrado" NAO podem ter a mesma
           #     aparencia.
           python - > /tmp/alvo <<'PY'
-          import collections, os
+          import collections, json, os
           from pathlib import Path
           c = collections.Counter(p.name.split(' - ', 1)[0]
                                   for p in Path('dados/corpus').glob('*.txt')
@@ -233,6 +233,19 @@ jobs:
           #    normalmente, e o destilador ja' poe o reaberto no fim dentro do
           #    lote. E' ORDEM, nao exclusao -- quando o inedito acabar, o
           #    retrabalho e' feito.
+          # ⭐ LISTA DE ADIAMENTO, e ela vive no COFRE -- nao aqui. O dono
+          #    pode mandar um lote para o fim por decisao propria, sem que o
+          #    NOME do canal entre neste repositorio, que e' publico. O runner
+          #    le do clone privado; quem olha o motor ve so' o mecanismo.
+          # ⚠️ Ausente ou ilegivel = lista vazia. Falta de arquivo nao pode
+          #    virar erro que derruba a corrida.
+          adiar = set()
+          try:
+              _a = json.loads(Path('dados/adiar.json').read_text(encoding='utf-8'))
+              adiar = {x['lote'] for x in _a.get('adiar', []) if x.get('lote')}
+          except Exception:
+              pass
+
           reab = collections.Counter()
           for q in Path('dados/fichas/_reabertos').glob('*.json'):
               reab[q.name.split(' - ', 1)[0]] += 1
@@ -240,8 +253,11 @@ jobs:
           def so_retrabalho(a, pendentes):
               return 1 if pendentes and reab.get(a, 0) >= pendentes else 0
 
+          # ⭐ A ordem final: adiado por decisao > retrabalho > esteril por
+          #    medida > do menor para o maior.
           falta = sorted(falta,
-                         key=lambda x: (so_retrabalho(x[1], x[0]),
+                         key=lambda x: (1 if x[1] in adiar else 0,
+                                        so_retrabalho(x[1], x[0]),
                                         esteril(x[1]), x[0]))
           ponta = os.environ.get('PONTA', 'menor')
           # ⛔ COM UM LOTE SO', as duas pontas apontam para o mesmo alvo. O
