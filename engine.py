@@ -21,7 +21,7 @@ URL_NV = 'https://integrate.api.nvidia.com/v1/chat/completions'
 URL_GEMINI = 'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s'
 CAMADA_A = [('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV), ('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b:free', URL_OR), ('gemini', 'gemini', 'gemini-flash-lite-latest', URL_GEMINI)]
 CAMADA_GEMINI = [('gemini', 'gemini', 'gemini-flash-lite-latest', URL_GEMINI), ('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV)]
-CAMADA_B = [('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b:free', URL_OR), ('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV), ('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b', URL_OR)]
+CAMADA_B = [('oai', 'openrouter', 'nvidia/nemotron-3-super-120b-a12b:free', URL_OR), ('oai', 'nvidia', 'nvidia/nemotron-3-super-120b-a12b', URL_NV)]
 PROVEDORES = CAMADA_A
 OBRAS_NEMOTRON = []
 
@@ -45,6 +45,7 @@ class Anel:
         self.chaves = {'nvidia': self._colher('NVIDIA_API_KEY'), 'openrouter': self._colher('OPENROUTER_API_KEY'), 'gemini': self._colher('GEMINI_API_KEY')}
         self.pos = {k: 0 for k in self.chaves}
         self.mortas: dict[str, set[str]] = {k: set() for k in self.chaves}
+        self.mortas_rota: dict[str, set[str]] = {}
         self.usos: dict[str, int] = {}
         self._trava = threading.Lock()
 
@@ -54,18 +55,22 @@ class Anel:
         ks += [os.environ[k] for k in sorted(os.environ) if re.fullmatch(re.escape(base) + '_\\d+', k)]
         return ks
 
-    def proxima(self, campo_02: str) -> str | None:
+    def proxima(self, campo_02: str, rota: str='') -> str | None:
         with self._trava:
-            ks = [k for k in self.chaves[campo_02] if k not in self.mortas[campo_02]]
+            fora = self.mortas[campo_02] | self.mortas_rota.get(rota, set())
+            ks = [k for k in self.chaves[campo_02] if k not in fora]
             if not ks:
                 return None
             k = ks[self.pos[campo_02] % len(ks)]
             self.pos[campo_02] += 1
             return k
 
-    def queimar(self, campo_02: str, chave: str) -> None:
+    def queimar(self, campo_02: str, chave: str, rota: str='') -> None:
         with self._trava:
-            self.mortas[campo_02].add(chave)
+            if rota:
+                self.mortas_rota.setdefault(rota, set()).add(chave)
+            else:
+                self.mortas[campo_02].add(chave)
 
     def contar(self, modelo: str) -> None:
         with self._trava:
@@ -114,7 +119,7 @@ def chamar(anel: Anel, texto: str, provedores=None) -> tuple[list[dict], str]:
     vazios: list[str] = []
     for rota, campo_02, modelo, url in provedores or PROVEDORES:
         for _ in range(max(1, anel.vivas(campo_02))):
-            k = anel.proxima(campo_02)
+            k = anel.proxima(campo_02, modelo)
             if not k:
                 break
             try:
@@ -127,7 +132,9 @@ def chamar(anel: Anel, texto: str, provedores=None) -> tuple[list[dict], str]:
                 return (fichas, modelo)
             except urllib.error.HTTPError as e:
                 ultimo = '%s HTTP %d' % (modelo, e.code)
-                if e.code in (401, 402, 403):
+                if e.code == 402:
+                    anel.queimar(campo_02, k, modelo)
+                elif e.code in (401, 403):
                     anel.queimar(campo_02, k)
             except Exception as e:
                 ultimo = '%s %s' % (modelo, type(e).__name__)

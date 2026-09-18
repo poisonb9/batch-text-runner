@@ -118,7 +118,7 @@ def destilar(origem: Path, anel, fluxos: int, gemini_em_dez: int=0) -> tuple[int
     trava = threading.Lock()
     modelos = set()
     CAM_NEM = da.CAMADA_B
-    ROTAS_GEM = [('gemini', 'gemini', m, da.URL_GEMINI) for m in ('gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-flash-lite-latest')]
+    ROTAS_GEM = [('gemini', 'gemini', m, da.URL_GEMINI) for m in ('gemini-3.7-flash', 'gemini-3.5-flash')]
     ROTA_GEM = ROTAS_GEM[0]
     CAM_GEM = list(ROTAS_GEM) + list(CAM_NEM)
     CAM_NEM = list(CAM_NEM) + list(ROTAS_GEM)
@@ -222,7 +222,27 @@ def main() -> int:
     pendentes = [o for o in fila if not (FICHAS / (o.stem + '.json')).exists()]
     if args.prefixo:
         pendentes = [o for o in pendentes if o.stem.startswith(args.prefixo)]
-    print('videos no corpus:', len(fila), '| SEM ficha:', len(pendentes))
+    espera_h = float(os.environ.get('ESPERA_RETENTATIVA_H', '6'))
+    if espera_h > 0 and FALHAS.exists():
+        agora = time.time()
+
+        def em_espera(o) -> bool:
+            marca = FALHAS / (o.stem + '.json')
+            if not marca.exists():
+                return False
+            try:
+                q = json.loads(marca.read_text(encoding='utf-8')).get('quando')
+                if not q:
+                    return False
+                t = time.mktime(time.strptime(q, '%Y-%m-%dT%H:%M:%SZ'))
+                return 0 <= (agora - (t - time.timezone)) / 3600.0 < espera_h
+            except Exception:
+                return False
+        antes = len(pendentes)
+        pendentes = [o for o in pendentes if not em_espera(o)]
+        if antes != len(pendentes):
+            print('em espera (segunda opiniao recente):', antes - len(pendentes))
+    print('videos no corpus:', len(fila), '| DISPONIVEIS:', len(pendentes))
     fila = pendentes[:args.limite] if args.limite else pendentes
     print('videos na fila:', len(fila), '\n')
     total_f = total_x = total_v = feitos = 0
