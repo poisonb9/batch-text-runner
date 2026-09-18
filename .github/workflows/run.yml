@@ -152,7 +152,14 @@ jobs:
           #    `timeout-minutes: 300` a cancelou antes. Agora o prejuizo
           #    maximo de um estouro e' UM pedaco.
           PEDACO=${PEDACO:-300}
-          ALVO=$(python - <<'PY'
+          # ⛔⛔ O CODIGO DE SAIDA DO SELETOR E' CONFERIDO. Ate' 18/09/2026
+          #     ele rodava dentro de `$( )`: quando o Python estourava, o
+          #     `$ALVO` saia vazio e o shell lia isso como "nada para esta
+          #     ponta", encerrando com SUCCESS. Foram 45 minutos de
+          #     corridas verdes sem uma ficha, por um NameError.
+          #     "Fila vazia" e "seletor quebrado" NAO podem ter a mesma
+          #     aparencia.
+          python - > /tmp/alvo <<'PY'
           import collections, os
           from pathlib import Path
           c = collections.Counter(p.name.split(' - ', 1)[0]
@@ -184,7 +191,7 @@ jobs:
                           esperando[p.name.split(' - ', 1)[0]] += 1
                   except Exception:
                       continue
-          falta = sorted((n - f.get(k, 0) - esperando.get(k, 0), k)
+          falta = sorted((c[k] - f.get(k, 0) - esperando.get(k, 0), k)
                          for k in c)
           falta = [(n, k) for n, k in falta if n > 0]
           ponta = os.environ.get('PONTA', 'menor')
@@ -245,7 +252,12 @@ jobs:
               for k in escolhidos:
                   print(k)
           PY
-          )
+          sel=$?
+          if [ "$sel" -ne 0 ]; then
+            echo "⛔ o seletor de alvo FALHOU (codigo $sel) -- abortando"
+            exit "$sel"
+          fi
+          ALVO=$(cat /tmp/alvo)
           if [ -z "$ALVO" ]; then echo "nada para esta ponta"; exit 0; fi
           echo "lotes nesta corrida: $(echo "$ALVO" | grep -c .)"
           pior=0
