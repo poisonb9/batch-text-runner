@@ -194,6 +194,38 @@ jobs:
           falta = sorted((c[k] - f.get(k, 0) - esperando.get(k, 0), k)
                          for k in c)
           falta = [(n, k) for n, k in falta if n > 0]
+          # ⭐ LOTE DE RENDIMENTO MEDIDO BAIXO VAI PARA O FIM. A medida e' o
+          #    tamanho medio da ficha do proprio canal -- ficha vazia pesa
+          #    ~300 bytes, ficha com conteudo pesa milhares. Custa um `stat`.
+          # ⛔ Medido em 18/09/2026: um canal short-form de 456 videos
+          #    monopolizou uma ponta por mais de uma hora, tirando 8 fichas de
+          #    140 videos, enquanto 8.000 videos que rendem esperavam.
+          # ⛔ E NAO se faz com lista de nomes: nome de canal no motor publico
+          #    e' vazamento de identidade, e lista fixa so' pega o que alguem
+          #    lembrou de por nela.
+          # ⚠️ Nao e' exclusao -- o lote continua na fila, so' no fim. E o
+          #    criterio se corrige sozinho: se as fichas engordarem, ele sobe.
+          LIMIAR = int(os.environ.get('LIMIAR_RENDIMENTO', '2000'))
+          MIN_AMOSTRA = 15
+          soma, quantas = collections.Counter(), collections.Counter()
+          for q in Path('dados/fichas').glob('*.json'):
+              if q.name.endswith('.parcial.json'):
+                  continue
+              a = q.name.split(' - ', 1)[0]
+              try:
+                  soma[a] += q.stat().st_size
+              except OSError:
+                  continue
+              quantas[a] += 1
+
+          def esteril(a):
+              # ⚠️ Sem amostra nao ha' medicao: o lote mantem a posicao normal.
+              #    Julgar um canal por 3 fichas seria palpite, nao medida.
+              if quantas[a] < MIN_AMOSTRA:
+                  return 0
+              return 1 if soma[a] / quantas[a] < LIMIAR else 0
+
+          falta = sorted(falta, key=lambda x: (esteril(x[1]), x[0]))
           ponta = os.environ.get('PONTA', 'menor')
           # ⛔ COM UM LOTE SO', as duas pontas apontam para o mesmo alvo. O
           #    fluxo secundario sai VAZIO em vez de duplicar: dois provedores
