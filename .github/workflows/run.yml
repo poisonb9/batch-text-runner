@@ -225,7 +225,24 @@ jobs:
                   return 0
               return 1 if soma[a] / quantas[a] < LIMIAR else 0
 
-          falta = sorted(falta, key=lambda x: (esteril(x[1]), x[0]))
+          # ⭐ LOTE SO' DE RETRABALHO VAI PARA O FIM DE TUDO. Ao devolver a'
+          #    fila os videos fechados como "sem saida", canais ja' zerados
+          #    reapareceram com 1, 9, 25 videos -- e por serem pequenos
+          #    passavam na frente de lotes com centenas de ineditos.
+          # ⚠️ Lote MISTO nao e' penalizado: basta um inedito para concorrer
+          #    normalmente, e o destilador ja' poe o reaberto no fim dentro do
+          #    lote. E' ORDEM, nao exclusao -- quando o inedito acabar, o
+          #    retrabalho e' feito.
+          reab = collections.Counter()
+          for q in Path('dados/fichas/_reabertos').glob('*.json'):
+              reab[q.name.split(' - ', 1)[0]] += 1
+
+          def so_retrabalho(a, pendentes):
+              return 1 if pendentes and reab.get(a, 0) >= pendentes else 0
+
+          falta = sorted(falta,
+                         key=lambda x: (so_retrabalho(x[1], x[0]),
+                                        esteril(x[1]), x[0]))
           ponta = os.environ.get('PONTA', 'menor')
           # ⛔ COM UM LOTE SO', as duas pontas apontam para o mesmo alvo. O
           #    fluxo secundario sai VAZIO em vez de duplicar: dois provedores
